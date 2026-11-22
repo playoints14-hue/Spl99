@@ -4913,12 +4913,31 @@ window.splApplyCms=function(s){try{TM=new Map();RM=new Map();BS=new Map();
           showAlert(T('সঠিক ১১ ডিজিটের বাংলাদেশি মোবাইল নম্বর এবং পাসওয়ার্ড দিন।', 'Enter a valid Bangladeshi mobile number and a password (min 4 characters).')); return;
         }
         if (password !== password2) { showAlert(T('পাসওয়ার্ড দুটি মিলছে না।', 'Passwords do not match.')); return; }
-        const response = await fetch('/api/register', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({name, phone, password, invitedByCode: invitedBy, deviceId, referralCode})
+        // সার্ভার ছাড়াই সরাসরি ডাটাবেসে অ্যাকাউন্ট তৈরি
+        const usersRef = db.ref('users');
+        const existing = await usersRef.child(phone).once('value');
+        if (existing.exists()) {
+          showAlert(T('এই নম্বরে আগে অ্যাকাউন্ট খোলা হয়েছে।', 'An account already exists with this number.'));
+          return;
+        }
+        if (invitedBy) {
+          const inviter = await usersRef.orderByChild('referralCode').equalTo(invitedBy).once('value');
+          if (!inviter.exists()) {
+            showAlert(T('রেফার কোডটি সঠিক নয়।', 'Invalid referral code.'));
+            return;
+          }
+        }
+        const regBonus = Math.max(0, Number(window.splRegistrationBonus ?? 0));
+        await usersRef.child(phone).set({
+          name, phone, password,
+          referralCode,
+          invitedByCode: invitedBy || '',
+          deviceId,
+          balance: regBonus,
+          isBanned: false,
+          createdAt: Date.now()
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || 'নিবন্ধন করা যায়নি');
+        const data = { bonus: regBonus };
         try {
           const deviceRef = db.ref('devices').child(deviceId);
           const snap = await deviceRef.once('value');
